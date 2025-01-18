@@ -1,0 +1,22 @@
+[Unit]
+Description=Electrs Server (Ordpool)
+After=network.target
+Wants=network.target
+
+[Service]
+# Run as the ord-dev user!
+User=ord-dev
+WorkingDirectory=/home/ord-dev/ordpool-electrs
+ExecStart=/home/ord-dev/ordpool-electrs/target/release/electrs -vvvv --daemon-dir /home/ord-dev/.bitcoin --lightmode
+Restart=on-failure
+RestartSec=5s
+
+# Security hardening options
+LimitNOFILE=65536
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

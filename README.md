@@ -1,25 +1,108 @@
-# Mempool - Electrs backend API
+# Ordpool - Electrs backend API
 
-A block chain index engine and HTTP API written in Rust based on [romanz/electrs](https://github.com/romanz/electrs) and [Blockstream/electrs](https://github.com/Blockstream/electrs).
+A block chain index engine and HTTP API written in Rust based on 
+[romanz/electrs](https://github.com/romanz/electrs),
+[Blockstream/electrs](https://github.com/Blockstream/electrs) and
+[mempool/electrs](https://github.com/mempool/electrs).
 
-Used as the backend for the [mempool block explorer](https://github.com/mempool/mempool) powering [mempool.space](https://mempool.space/).
+Used as the backend for the [Ordpool block explorer](https://github.com/ordpool-space/ordpool) powering [ordpool.space](https://ordpool.space/).
 
-API documentation [is available here](https://mempool.space/docs/api/rest).
+<!-- API documentation [is available here](https://mempool.space/docs/api/rest). -->
 
 Documentation for the database schema and indexing process [is available here](doc/schema.md).
 
 ### Installing & indexing
 
-Install Rust, Bitcoin Core (no `txindex` needed) and the `clang` and `cmake` packages, then:
+Install Rust, Bitcoin Core <!--(no `txindex` needed)--> and the `clang` and `cmake` packages.  
+Hint: Add `txindex` so that Bitcoin Core can also be used to index via `ord`.
+
+Example with homebrew:
 
 ```bash
-$ git clone https://github.com/mempool/electrs && cd electrs
-$ git checkout mempool
-$ cargo run --release --bin electrs -- -vvvv --daemon-dir ~/.bitcoin
-
-# Or for liquid:
-$ cargo run --features liquid --release --bin electrs -- -vvvv --network liquid --daemon-dir ~/.liquid
+brew install rust
+rustc --version
+sudo apt install libclang-dev clang
 ```
+
+See also https://github.com/ordpool-space/cat21-ord/blob/index-cat21/docs-cat21/0-developer-howto.md
+
+Then clone the repo:
+
+```bash
+$ git clone https://github.com/ordpool-space/ordpool-electrs
+$ cd ordpool-electrs
+$ git checkout ordpool
+```
+
+Execute with light index (good enough for development):
+
+```bash
+$ cargo run --release --bin electrs -- -vvvv --daemon-dir ~/.bitcoin --lightmode
+```
+
+Execute with FULL index:
+
+```bash
+$ cargo run --release --bin electrs -- -vvvv --daemon-dir ~/.bitcoin
+```
+
+If you want start all over again, simply delete the database directory:
+
+```bash
+rm -rf ./db/mainnet
+```
+
+Stopping the daemon:
+
+```bash
+pkill -9 electrs
+```
+
+### Run as a daemon (simple server for development)
+
+You can also manage the server (for development!) via `systemd`.  
+Pre-compile the binary first!
+
+1. **Pre-compile the electrs binary:**
+   Navigate to the `ordpool-electrs` directory and build the binary.
+
+   ```bash
+   cargo build --release --bin electrs
+   ``` 
+
+2. **Enable and Start the Service**:
+   Reload `systemd` to register the updated service file and start the service.
+   Make sure to change to the sub-folder `ordpool-dev` first!
+
+   ```bash
+   cd ordpool-dev
+
+   sudo systemctl daemon-reload
+   sudo systemctl enable electrs
+   sudo systemctl start electrs
+   ```
+
+3. **Check the Service Status**:
+   Verify that the `electrs` service is running without errors.
+
+   ```bash
+   sudo systemctl status electrs
+   ```
+
+4. **Log Management:**
+   To view logs for the `electrs` service.  
+   Full log history:
+
+   ```bash
+   sudo journalctl -u electrs
+   ```
+   Real-time log output:
+
+   ```bash
+   sudo journalctl -u electrs -f
+   ```
+
+### Documentation
 
 See [electrs's original documentation](https://github.com/romanz/electrs/blob/master/doc/usage.md) for more detailed instructions.
 Note that our indexes are incompatible with electrs's and has to be created separately.
