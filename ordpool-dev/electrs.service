@@ -19,5 +19,8 @@ NoNewPrivileges=true
 PrivateDevices=true
 MemoryDenyWriteExecute=true
 
+# Increase the File Descriptor Limit for electrs
+LimitNOFILE=65536
+
 [Install]
 WantedBy=multi-user.target
