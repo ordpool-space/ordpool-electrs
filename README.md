@@ -71,12 +71,12 @@ Pre-compile the binary first!
    ``` 
 
 2. **Enable and Start the Service**:
+   `systemd` expects service files to be in `/etc/systemd/system/`. 
+   Move your `electrs.service` file there:
    Reload `systemd` to register the updated service file and start the service.
-   Make sure to change to the sub-folder `ordpool-dev` first!
 
    ```bash
-   cd ordpool-dev
-
+   sudo cp ./ordpool-dev/electrs.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable electrs
    sudo systemctl start electrs
@@ -100,6 +100,18 @@ Pre-compile the binary first!
 
    ```bash
    sudo journalctl -u electrs -f
+   ```
+
+   To check how much space all `systemd` log files (managed by `journald`) are consuming, you can use the following command:
+
+   ```
+   sudo journalctl --disk-usage
+   ```
+
+   For example, to retain only 500 MB of logs:
+
+   ```
+   sudo journalctl --vacuum-size=500M
    ```
 
 ### Documentation

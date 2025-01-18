@@ -1,22 +1,23 @@
 [Unit]
-Description=Electrs Server (Ordpool)
-After=network.target
-Wants=network.target
+Description=Electrum Rust Server (Ordpool)
+Requires=bitcoind.service
+After=bitcoind.service
 
 [Service]
-# Run as the ord-dev user!
+Type=simple
 User=ord-dev
 WorkingDirectory=/home/ord-dev/ordpool-electrs
 ExecStart=/home/ord-dev/ordpool-electrs/target/release/electrs -vvvv --daemon-dir /home/ord-dev/.bitcoin --lightmode
 Restart=on-failure
-RestartSec=5s
+RestartSec=60
+Environment="RUST_BACKTRACE=1"
 
-# Security hardening options
-LimitNOFILE=65536
-ProtectSystem=full
-ProtectHome=true
+# Optional: Security hardening
 PrivateTmp=true
+ProtectSystem=full
 NoNewPrivileges=true
+PrivateDevices=true
+MemoryDenyWriteExecute=true
 
 [Install]
 WantedBy=multi-user.target
