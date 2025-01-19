@@ -7,7 +7,7 @@ After=bitcoind.service
 Type=simple
 User=ord-dev
 WorkingDirectory=/home/ord-dev/ordpool-electrs
-ExecStart=/home/ord-dev/ordpool-electrs/target/release/electrs -vvvv --daemon-dir /home/ord-dev/.bitcoin --lightmode
+ExecStart=/home/ord-dev/ordpool-electrs/target/release/electrs -v --daemon-dir /home/ord-dev/.bitcoin --lightmode
 Restart=on-failure
 RestartSec=60
 Environment="RUST_BACKTRACE=1"

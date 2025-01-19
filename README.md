@@ -37,13 +37,32 @@ $ git checkout ordpool
 Execute with light index (good enough for development):
 
 ```bash
-$ cargo run --release --bin electrs -- -vvvv --daemon-dir ~/.bitcoin --lightmode
+$ cargo run --release --bin electrs -- -v --daemon-dir ~/.bitcoin --lightmode
 ```
+
+Logging Levels in `electrs`:
+
+1. **`-v` (Minimal Logging)**:
+   - Logs basic operational details.
+   - Suitable for production to keep logs small and focused on critical information.
+
+2. **`-vv` (Moderate Logging)**:
+   - Adds more detailed logs, including non-critical operations.
+   - Useful for debugging common issues without overwhelming log output.
+
+3. **`-vvv` (Detailed Logging)**:
+   - Logs a lot of information about internal operations, including debug-level messages.
+   - Useful for deep debugging or troubleshooting complex issues.
+
+4. **`-vvvv` (Maximum Verbosity)**:
+   - Logs everything, including trace-level messages.
+   - Generates massive amounts of data, including details of nearly every function and operation.
+
 
 Execute with FULL index:
 
 ```bash
-$ cargo run --release --bin electrs -- -vvvv --daemon-dir ~/.bitcoin
+$ cargo run --release --bin electrs -- -v --daemon-dir ~/.bitcoin
 ```
 
 If you want start all over again, simply delete the database directory:
