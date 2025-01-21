@@ -77,6 +77,13 @@ Stopping the daemon:
 pkill -9 electrs
 ```
 
+If indexing is still ongoing, wait until it's complete.
+Verify electrs is actually binding and ready to serve responses:
+
+```bash
+curl http://127.0.0.1:3000/blocks/tip/height
+```
+
 ### Run as a daemon (simple server for development)
 
 You can also manage the server (for development!) via `systemd`.  
