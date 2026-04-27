@@ -8,7 +8,9 @@ pub mod fees;
 
 pub use self::block::{BlockHeaderMeta, BlockId, BlockMeta, BlockStatus, HeaderEntry, HeaderList};
 pub use self::fees::get_tx_fee;
-pub use self::script::{get_innerscripts, ScriptToAddr, ScriptToAsm};
+pub use self::script::{
+    get_innerscripts, IsProvablyUnspendable, ScriptToAddr, ScriptToAsm, SegwitDetection,
+};
 pub use self::transaction::{
     extract_tx_prevouts, has_prevout, is_coinbase, is_spendable, serialize_outpoint,
     sigops::transaction_sigop_count, TransactionStatus, TxInput,
@@ -194,12 +196,12 @@ pub fn create_socket(addr: &SocketAddr) -> Socket {
 ///
 /// Copied from https://github.com/rust-bitcoin/rust-bitcoincore-rpc/blob/master/json/src/lib.rs
 pub mod serde_hex {
-    use bitcoin::hashes::hex::{FromHex, ToHex};
+    use bitcoin::hashes::hex::FromHex;
     use serde::de::Error;
     use serde::{Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(b: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(&b.to_hex())
+    pub fn serialize<S: Serializer>(b: &[u8], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(b))
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
@@ -208,14 +210,14 @@ pub mod serde_hex {
     }
 
     pub mod opt {
-        use bitcoin::hashes::hex::{FromHex, ToHex};
+        use bitcoin::hashes::hex::FromHex;
         use serde::de::Error;
         use serde::{Deserializer, Serializer};
 
         pub fn serialize<S: Serializer>(b: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
             match *b {
                 None => s.serialize_none(),
-                Some(ref b) => s.serialize_str(&b.to_hex()),
+                Some(ref b) => s.serialize_str(&hex::encode(b)),
             }
         }
 

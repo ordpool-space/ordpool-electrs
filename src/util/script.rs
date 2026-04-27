@@ -9,6 +9,87 @@ pub struct InnerScripts {
     pub witness_script: Option<Script>,
 }
 
+pub trait IsProvablyUnspendable {
+    fn is_provably_unspendable_(&self) -> bool;
+}
+
+#[cfg(not(feature = "liquid"))]
+impl IsProvablyUnspendable for bitcoin::Script {
+    // is_provably_unspendable() is deprecated in rust-bitcoin
+    // so we re-implement it here. Copy pasted.
+    fn is_provably_unspendable_(&self) -> bool {
+        use bitcoin::blockdata::opcodes::{
+            Class::{IllegalOp, ReturnOp},
+            ClassifyContext, Opcode,
+        };
+
+        match self.as_bytes().first() {
+            Some(b) => {
+                let first = Opcode::from(*b);
+                let class = first.classify(ClassifyContext::Legacy);
+
+                class == ReturnOp || class == IllegalOp
+            }
+            None => false,
+        }
+    }
+}
+
+#[cfg(feature = "liquid")]
+impl IsProvablyUnspendable for elements::Script {
+    #[inline(always)]
+    fn is_provably_unspendable_(&self) -> bool {
+        // Not deprecated yet
+        self.is_provably_unspendable()
+    }
+}
+
+// Extension trait for segwit script detection that works across bitcoin and elements
+pub trait SegwitDetection {
+    fn segwit_is_p2wpkh(&self) -> bool;
+    fn segwit_is_p2wsh(&self) -> bool;
+    fn segwit_is_p2tr(&self) -> bool;
+}
+
+#[cfg(not(feature = "liquid"))]
+impl SegwitDetection for bitcoin::Script {
+    fn segwit_is_p2wpkh(&self) -> bool {
+        self.is_p2wpkh()
+    }
+    fn segwit_is_p2wsh(&self) -> bool {
+        self.is_p2wsh()
+    }
+    fn segwit_is_p2tr(&self) -> bool {
+        self.is_p2tr()
+    }
+}
+
+#[cfg(not(feature = "liquid"))]
+impl SegwitDetection for bitcoin::ScriptBuf {
+    fn segwit_is_p2wpkh(&self) -> bool {
+        self.is_p2wpkh()
+    }
+    fn segwit_is_p2wsh(&self) -> bool {
+        self.is_p2wsh()
+    }
+    fn segwit_is_p2tr(&self) -> bool {
+        self.is_p2tr()
+    }
+}
+
+#[cfg(feature = "liquid")]
+impl SegwitDetection for elements::Script {
+    fn segwit_is_p2wpkh(&self) -> bool {
+        self.is_v0_p2wpkh()
+    }
+    fn segwit_is_p2wsh(&self) -> bool {
+        self.is_v0_p2wsh()
+    }
+    fn segwit_is_p2tr(&self) -> bool {
+        self.is_v1_p2tr()
+    }
+}
+
 pub trait ScriptToAsm: std::fmt::Debug {
     fn to_asm(&self) -> String {
         let asm = format!("{:?}", self);
@@ -16,6 +97,7 @@ pub trait ScriptToAsm: std::fmt::Debug {
     }
 }
 impl ScriptToAsm for bitcoin::Script {}
+impl ScriptToAsm for bitcoin::ScriptBuf {}
 #[cfg(feature = "liquid")]
 impl ScriptToAsm for elements::Script {}
 
@@ -25,7 +107,9 @@ pub trait ScriptToAddr {
 #[cfg(not(feature = "liquid"))]
 impl ScriptToAddr for bitcoin::Script {
     fn to_address_str(&self, network: Network) -> Option<String> {
-        bitcoin::Address::from_script(self, network.into()).map(|s| s.to_string())
+        bitcoin::Address::from_script(self, bitcoin::Network::from(network))
+            .ok()
+            .map(|s| s.to_string())
     }
 }
 #[cfg(feature = "liquid")]
@@ -41,7 +125,11 @@ pub fn get_innerscripts(txin: &TxIn, prevout: &TxOut) -> InnerScripts {
     // Wrapped redeemScript for P2SH spends
     let redeem_script = if prevout.script_pubkey.is_p2sh() {
         if let Some(Ok(PushBytes(redeemscript))) = txin.script_sig.instructions().last() {
-            Some(Script::from(redeemscript.to_vec()))
+            #[cfg(not(feature = "liquid"))]
+            let bytes = redeemscript.as_bytes().to_vec();
+            #[cfg(feature = "liquid")]
+            let bytes = redeemscript.to_vec();
+            Some(Script::from(bytes))
         } else {
             None
         }
@@ -50,9 +138,9 @@ pub fn get_innerscripts(txin: &TxIn, prevout: &TxOut) -> InnerScripts {
     };
 
     // Wrapped witnessScript for P2WSH or P2SH-P2WSH spends
-    let witness_script = if prevout.script_pubkey.is_v0_p2wsh()
-        || prevout.script_pubkey.is_v1_p2tr()
-        || redeem_script.as_ref().map_or(false, |s| s.is_v0_p2wsh())
+    let witness_script = if prevout.script_pubkey.segwit_is_p2wsh()
+        || prevout.script_pubkey.segwit_is_p2tr()
+        || redeem_script.as_ref().is_some_and(|s| s.segwit_is_p2wsh())
     {
         let witness = &txin.witness;
         #[cfg(feature = "liquid")]
@@ -64,7 +152,7 @@ pub fn get_innerscripts(txin: &TxIn, prevout: &TxOut) -> InnerScripts {
         #[cfg(feature = "liquid")]
         let wit_to_vec = Clone::clone;
 
-        let inner_script_slice = if prevout.script_pubkey.is_v1_p2tr() {
+        let inner_script_slice = if prevout.script_pubkey.segwit_is_p2tr() {
             // Witness stack is potentially very large
             // so we avoid to_vec() or iter().collect() for performance
             let w_len = witness.len();

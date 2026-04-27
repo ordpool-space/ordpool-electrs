@@ -1,31 +1,40 @@
-use bitcoin::hashes::hex::ToHex;
+use elements::hex::ToHex;
 use elements::{confidential::Asset, PeginData, PegoutData, TxIn, TxOut};
 
 use crate::chain::{bitcoin_genesis_hash, BNetwork, Network};
-use crate::util::{FullHash, ScriptToAsm};
+use crate::util::FullHash;
 
-pub fn get_pegin_data(txout: &TxIn, network: Network) -> Option<PeginData> {
+pub fn get_pegin_data(txout: &TxIn, network: Network) -> Option<PeginData<'_>> {
     let pegged_asset_id = network.pegged_asset()?;
-    txout
-        .pegin_data()
-        .filter(|pegin| pegin.asset == Asset::Explicit(*pegged_asset_id))
+    txout.pegin_data().and_then(|pegin| {
+        if pegin.asset == *pegged_asset_id {
+            Some(pegin)
+        } else {
+            None
+        }
+    })
 }
 
 pub fn get_pegout_data(
     txout: &TxOut,
     network: Network,
     parent_network: BNetwork,
-) -> Option<PegoutData> {
+) -> Option<PegoutData<'_>> {
     let pegged_asset_id = network.pegged_asset()?;
-    txout.pegout_data().filter(|pegout| {
-        pegout.asset == Asset::Explicit(*pegged_asset_id)
+    txout.pegout_data().and_then(|pegout| {
+        if pegout.asset == Asset::Explicit(*pegged_asset_id)
             && pegout.genesis_hash
                 == bitcoin_genesis_hash(match parent_network {
                     BNetwork::Bitcoin => Network::Liquid,
-                    BNetwork::Testnet => Network::LiquidTestnet,
-                    BNetwork::Signet => return false,
+                    BNetwork::Testnet | BNetwork::Testnet4 => Network::LiquidTestnet,
+                    BNetwork::Signet => return None,
                     BNetwork::Regtest => Network::LiquidRegtest,
                 })
+        {
+            Some(pegout)
+        } else {
+            None
+        }
     })
 }
 
@@ -33,7 +42,7 @@ pub fn get_pegout_data(
 #[derive(Serialize, Deserialize, Clone)]
 pub struct PegoutValue {
     pub genesis_hash: String,
-    pub scriptpubkey: bitcoin::Script,
+    pub scriptpubkey: bitcoin::ScriptBuf,
     pub scriptpubkey_asm: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scriptpubkey_address: Option<String>,
@@ -44,12 +53,12 @@ impl PegoutValue {
         let pegoutdata = get_pegout_data(txout, network, parent_network)?;
 
         // pending https://github.com/ElementsProject/rust-elements/pull/69 is merged
-        let scriptpubkey = bitcoin::Script::from(pegoutdata.script_pubkey.into_bytes());
-        let address = bitcoin::Address::from_script(&scriptpubkey, parent_network);
+        let scriptpubkey = bitcoin::ScriptBuf::from(pegoutdata.script_pubkey.into_bytes());
+        let address = bitcoin::Address::from_script(&scriptpubkey, parent_network).ok();
 
         Some(PegoutValue {
             genesis_hash: pegoutdata.genesis_hash.to_hex(),
-            scriptpubkey_asm: scriptpubkey.to_asm(),
+            scriptpubkey_asm: scriptpubkey.to_asm_string(),
             scriptpubkey_address: address.map(|s| s.to_string()),
             scriptpubkey,
         })

@@ -34,7 +34,8 @@ fn main() {
         // This includes untracked files
         let dirty = cmd("git", &["status", "--short"]).expect("git command works");
 
-        let git_hash = if dirty.is_empty() {
+        // Ignore Dockerfile deletion as it is expected in Docker buildx builds
+        let git_hash = if dirty.is_empty() || dirty.trim() == "D Dockerfile" {
             rev_parse
         } else {
             format!("{}(dirty)", rev_parse.trim())

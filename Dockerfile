@@ -18,7 +18,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 WORKDIR /build
 COPY . .
 
-RUN cargo build --release --bin electrs
+ARG CARGO_EXTRA_ARGS=""
+RUN cargo build --release --bin electrs ${CARGO_EXTRA_ARGS}
 
 FROM base as deploy
 

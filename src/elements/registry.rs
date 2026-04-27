@@ -1,11 +1,11 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 use std::{cmp, fs, path, thread};
 
 use serde_json::Value as JsonValue;
 
-use bitcoin::hashes::hex::FromHex;
 use elements::AssetId;
 
 use crate::errors::*;
@@ -40,7 +40,7 @@ impl AssetRegistry {
         start_index: usize,
         limit: usize,
         sorting: AssetSorting,
-    ) -> (usize, Vec<AssetEntry>) {
+    ) -> (usize, Vec<AssetEntry<'_>>) {
         let mut assets: Vec<AssetEntry> = self
             .assets_cache
             .iter()
@@ -70,7 +70,7 @@ impl AssetRegistry {
                     continue;
                 }
 
-                let asset_id = AssetId::from_hex(
+                let asset_id = AssetId::from_str(
                     path.file_stem()
                         .unwrap() // cannot fail if extension() succeeded
                         .to_str()

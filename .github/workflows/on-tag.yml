@@ -16,39 +16,18 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: mempool-ci
     timeout-minutes: 120
     name: Build and push to DockerHub
+    strategy:
+      max-parallel: 1
+      matrix:
+        include:
+          - image: electrs
+            cargo_extra_args: ""
+          - image: electrs-liquid
+            cargo_extra_args: "--features liquid"
     steps:
-      # Workaround based on JonasAlfredsson/docker-on-tmpfs@v1.0.1
-      - name: Replace the current swap file
-        shell: bash
-        run: |
-          sudo swapoff /mnt/swapfile
-          sudo rm -v /mnt/swapfile
-          sudo fallocate -l 13G /mnt/swapfile
-          sudo chmod 600 /mnt/swapfile
-          sudo mkswap /mnt/swapfile
-          sudo swapon /mnt/swapfile
-
-      - name: Show current memory and swap status
-        shell: bash
-        run: |
-          sudo free -h
-          echo
-          sudo swapon --show
-
-      - name: Mount a tmpfs over /var/lib/docker
-        shell: bash
-        run: |
-          if [ ! -d "/var/lib/docker" ]; then
-            echo "Directory '/var/lib/docker' not found"
-            exit 1
-          fi
-          sudo mount -t tmpfs -o size=10G tmpfs /var/lib/docker
-          sudo systemctl restart docker
-          sudo df -h | grep docker
-
       - name: Set env variables
         run: echo "TAG=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
 
@@ -91,7 +70,8 @@ jobs:
           --cache-from "type=local,src=/tmp/.buildx-cache" \
           --cache-to "type=local,dest=/tmp/.buildx-cache" \
           --platform linux/amd64,linux/arm64 \
-          --tag ${{ secrets.DOCKER_HUB_USER }}/electrs:$TAG \
-          --tag ${{ secrets.DOCKER_HUB_USER }}/electrs:latest \
+          --tag ${{ secrets.DOCKER_HUB_USER }}/${{ matrix.image }}:$TAG \
+          --tag ${{ secrets.DOCKER_HUB_USER }}/${{ matrix.image }}:latest \
           --output "type=registry" . \
-          --build-arg commitHash=$SHORT_SHA
+          --build-arg commitHash=$SHORT_SHA \
+          --build-arg CARGO_EXTRA_ARGS="${{ matrix.cargo_extra_args }}"

@@ -12,7 +12,7 @@ use std::ops::Bound::{Excluded, Unbounded};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::chain::{deserialize, Network, OutPoint, Transaction, TxOut, Txid};
+use crate::chain::{deserialize, Network, OutPoint, Transaction, TxOut, Txid, TxidCompat};
 use crate::config::Config;
 use crate::daemon::Daemon;
 use crate::errors::*;
@@ -165,7 +165,7 @@ impl Mempool {
             // TODO seek directly to last seen tx without reading earlier rows
             .skip_while(|txid| {
                 // skip until we reach the last_seen_txid
-                last_seen_txid.map_or(false, |last_seen_txid| last_seen_txid != txid)
+                last_seen_txid.is_some_and(|last_seen_txid| last_seen_txid != txid)
             })
             .skip(match last_seen_txid {
                 Some(_) => 1, // skip the last_seen_txid itself
@@ -196,7 +196,7 @@ impl Mempool {
             // TODO seek directly to last seen tx without reading earlier rows
             .skip_while(|txid| {
                 // skip until we reach the last_seen_txid
-                last_seen_txid.map_or(false, |last_seen_txid| last_seen_txid != txid)
+                last_seen_txid.is_some_and(|last_seen_txid| last_seen_txid != txid)
             })
             .skip(match last_seen_txid {
                 Some(_) => 1, // skip the last_seen_txid itself
@@ -387,7 +387,7 @@ impl Mempool {
     }
 
     pub fn unique_txids(&self) -> HashSet<Txid> {
-        return HashSet::from_iter(self.txstore.keys().cloned());
+        HashSet::from_iter(self.txstore.keys().cloned())
     }
 
     pub fn update(mempool: &RwLock<Mempool>, daemon: &Daemon) -> Result<()> {
@@ -481,7 +481,7 @@ impl Mempool {
         let mut txids = Vec::with_capacity(txs.len());
         // Phase 1: add to txstore
         for tx in txs {
-            let txid = tx.txid();
+            let txid = tx.get_txid();
             // Only push if it doesn't already exist.
             // This is important now that update doesn't lock during
             // the entire function body.
@@ -526,7 +526,10 @@ impl Mempool {
                 fee: feeinfo.fee,
                 vsize: feeinfo.vsize,
                 #[cfg(not(feature = "liquid"))]
-                value: prevouts.values().map(|prevout| prevout.value).sum(),
+                value: prevouts
+                    .values()
+                    .map(|prevout| prevout.value.to_sat())
+                    .sum(),
             });
 
             self.feeinfo.insert(txid, feeinfo);
@@ -534,6 +537,10 @@ impl Mempool {
             // An iterator over (ScriptHash, TxHistoryInfo)
             let spending = prevouts.into_iter().map(|(input_index, prevout)| {
                 let txi = tx.input.get(input_index as usize).unwrap();
+                #[cfg(not(feature = "liquid"))]
+                let value = prevout.value.to_sat();
+                #[cfg(feature = "liquid")]
+                let value = prevout.value;
                 (
                     compute_script_hash(&prevout.script_pubkey),
                     TxHistoryInfo::Spending(SpendingInfo {
@@ -541,7 +548,7 @@ impl Mempool {
                         vin: input_index,
                         prev_txid: full_hash(&txi.previous_output.txid[..]),
                         prev_vout: txi.previous_output.vout,
-                        value: prevout.value,
+                        value,
                     }),
                 )
             });
@@ -555,12 +562,16 @@ impl Mempool {
                 .enumerate()
                 .filter(|(_, txo)| is_spendable(txo) || config.index_unspendables)
                 .map(|(index, txo)| {
+                    #[cfg(not(feature = "liquid"))]
+                    let value = txo.value.to_sat();
+                    #[cfg(feature = "liquid")]
+                    let value = txo.value;
                     (
                         compute_script_hash(&txo.script_pubkey),
                         TxHistoryInfo::Funding(FundingInfo {
                             txid: txid_bytes,
                             vout: index as u32,
-                            value: txo.value,
+                            value,
                         }),
                     )
                 });

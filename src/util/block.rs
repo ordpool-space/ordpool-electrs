@@ -1,3 +1,5 @@
+use bitcoin::hashes::Hash;
+
 use crate::chain::{BlockHash, BlockHeader};
 use crate::errors::*;
 use crate::new_index::BlockEntry;
@@ -73,7 +75,7 @@ impl HeaderList {
         HeaderList {
             headers: vec![],
             heights: HashMap::new(),
-            tip: BlockHash::default(),
+            tip: BlockHash::all_zeros(),
         }
     }
 
@@ -89,7 +91,7 @@ impl HeaderList {
 
         let mut blockhash = tip_hash;
         let mut headers_chain: Vec<BlockHeader> = vec![];
-        let null_hash = BlockHash::default();
+        let null_hash = BlockHash::all_zeros();
 
         while blockhash != null_hash {
             let header = headers_map.remove(&blockhash).unwrap_or_else(|| {
@@ -136,7 +138,7 @@ impl HeaderList {
             Some(h) => h.header.prev_blockhash,
             None => return vec![], // hashed_headers is empty
         };
-        let null_hash = BlockHash::default();
+        let null_hash = BlockHash::all_zeros();
         let new_height: usize = if prev_blockhash == null_hash {
             0
         } else {
@@ -155,7 +157,12 @@ impl HeaderList {
             .collect()
     }
 
-    pub fn apply(&mut self, new_headers: Vec<HeaderEntry>) {
+    /// Returns any rolled back blocks in order from old tip first and first block in the fork is last
+    /// It also returns the blockhash of the post-rollback tip.
+    pub fn apply(
+        &mut self,
+        new_headers: Vec<HeaderEntry>,
+    ) -> (Vec<HeaderEntry>, Option<BlockHash>) {
         // new_headers[i] -> new_headers[i - 1] (i.e. new_headers.last() is the tip)
         for i in 1..new_headers.len() {
             assert_eq!(new_headers[i - 1].height() + 1, new_headers[i].height());
@@ -170,19 +177,27 @@ impl HeaderList {
                 let expected_prev_blockhash = if height > 0 {
                     *self.headers[height - 1].hash()
                 } else {
-                    BlockHash::default()
+                    BlockHash::all_zeros()
                 };
                 assert_eq!(entry.header().prev_blockhash, expected_prev_blockhash);
                 height
             }
-            None => return,
+            None => return (vec![], None),
         };
         debug!(
             "applying {} new headers from height {}",
             new_headers.len(),
             new_height
         );
-        let _removed = self.headers.split_off(new_height); // keep [0..new_height) entries
+        let mut removed = self.headers.split_off(new_height); // keep [0..new_height) entries
+
+        // If we reorged, we should return the last blockhash before adding the new chain's blockheaders.
+        let reorged_tip = if !removed.is_empty() {
+            self.headers.last().map(|be| be.hash()).cloned()
+        } else {
+            None
+        };
+
         for new_header in new_headers {
             let height = new_header.height();
             assert_eq!(height, self.headers.len());
@@ -190,6 +205,8 @@ impl HeaderList {
             self.headers.push(new_header);
             self.heights.insert(self.tip, height);
         }
+        removed.reverse();
+        (removed, reorged_tip)
     }
 
     pub fn header_by_blockhash(&self, blockhash: &BlockHash) -> Option<&HeaderEntry> {
@@ -203,9 +220,8 @@ impl HeaderList {
     }
 
     pub fn header_by_height(&self, height: usize) -> Option<&HeaderEntry> {
-        self.headers.get(height).map(|entry| {
+        self.headers.get(height).inspect(|entry| {
             assert_eq!(entry.height(), height);
-            entry
         })
     }
 
@@ -216,7 +232,10 @@ impl HeaderList {
     pub fn tip(&self) -> &BlockHash {
         assert_eq!(
             self.tip,
-            self.headers.last().map(|h| *h.hash()).unwrap_or_default()
+            self.headers
+                .last()
+                .map(|h| *h.hash())
+                .unwrap_or(BlockHash::all_zeros())
         );
         &self.tip
     }
@@ -229,7 +248,7 @@ impl HeaderList {
         self.headers.is_empty()
     }
 
-    pub fn iter(&self) -> slice::Iter<HeaderEntry> {
+    pub fn iter(&self) -> slice::Iter<'_, HeaderEntry> {
         self.headers.iter()
     }
 
@@ -292,9 +311,13 @@ pub struct BlockHeaderMeta {
 
 impl From<&BlockEntry> for BlockMeta {
     fn from(b: &BlockEntry) -> BlockMeta {
+        #[cfg(not(feature = "liquid"))]
+        let weight = b.block.weight().to_wu() as u32;
+        #[cfg(feature = "liquid")]
+        let weight = b.block.weight() as u32;
         BlockMeta {
             tx_count: b.block.txdata.len() as u32,
-            weight: b.block.weight() as u32,
+            weight,
             size: b.size,
         }
     }

@@ -11,7 +11,7 @@ use std::io::Cursor;
 use std::path::PathBuf;
 use std::thread;
 
-use crate::chain::{Block, BlockHash};
+use crate::chain::{Block, BlockHash, BlockSizeCompat};
 use crate::daemon::Daemon;
 use crate::errors::*;
 use crate::util::{spawn_thread, HeaderEntry, SyncChannel};
@@ -41,6 +41,57 @@ pub struct BlockEntry {
 }
 
 type SizedBlock = (Block, u32);
+
+pub struct SequentialFetcher<T> {
+    fetcher: Box<dyn FnOnce() -> Vec<Vec<T>>>,
+}
+
+impl<T> SequentialFetcher<T> {
+    fn from<F: FnOnce() -> Vec<Vec<T>> + 'static>(pre_func: F) -> Self {
+        SequentialFetcher {
+            fetcher: Box::new(pre_func),
+        }
+    }
+
+    pub fn map<FN>(self, mut func: FN)
+    where
+        FN: FnMut(Vec<T>),
+    {
+        for item in (self.fetcher)() {
+            func(item);
+        }
+    }
+}
+
+pub fn bitcoind_sequential_fetcher(
+    daemon: &Daemon,
+    new_headers: Vec<HeaderEntry>,
+) -> Result<SequentialFetcher<BlockEntry>> {
+    let daemon = daemon.reconnect()?;
+    Ok(SequentialFetcher::from(move || {
+        new_headers
+            .chunks(100)
+            .map(|entries| {
+                let blockhashes: Vec<BlockHash> = entries.iter().map(|e| *e.hash()).collect();
+                let blocks = daemon
+                    .getblocks(&blockhashes)
+                    .expect("failed to get blocks from bitcoind");
+                assert_eq!(blocks.len(), entries.len());
+                let block_entries: Vec<BlockEntry> = blocks
+                    .into_iter()
+                    .zip(entries)
+                    .map(|(block, entry)| BlockEntry {
+                        entry: entry.clone(), // TODO: remove this clone()
+                        size: block.get_block_size() as u32,
+                        block,
+                    })
+                    .collect();
+                assert_eq!(block_entries.len(), entries.len());
+                block_entries
+            })
+            .collect()
+    }))
+}
 
 pub struct Fetcher<T> {
     receiver: crossbeam_channel::Receiver<T>,
@@ -87,7 +138,7 @@ fn bitcoind_fetcher(
                     .zip(entries)
                     .map(|(block, entry)| BlockEntry {
                         entry: entry.clone(), // TODO: remove this clone()
-                        size: block.size() as u32,
+                        size: block.get_block_size() as u32,
                         block,
                     })
                     .collect();

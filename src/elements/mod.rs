@@ -1,4 +1,5 @@
-use bitcoin::hashes::{hex::ToHex, Hash};
+use bitcoin::hashes::Hash;
+use elements::hex::ToHex;
 use elements::secp256k1_zkp::ZERO_TWEAK;
 use elements::{confidential::Value, encode::serialize, issuance::ContractHash, AssetId, TxIn};
 

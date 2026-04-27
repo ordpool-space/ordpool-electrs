@@ -2,25 +2,64 @@ use std::str::FromStr;
 
 #[cfg(not(feature = "liquid"))] // use regular Bitcoin data structures
 pub use bitcoin::{
-    blockdata::{opcodes, script, witness::Witness},
+    address,
+    block::Header as BlockHeader,
+    blockdata::{opcodes, script},
     consensus::deserialize,
-    hashes,
-    util::address,
-    Block, BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn, TxOut, Txid,
+    hashes, Block, BlockHash, OutPoint, ScriptBuf as Script, Transaction, TxIn, TxOut, Txid,
+    Witness,
 };
 
 #[cfg(feature = "liquid")]
 pub use {
     crate::elements::asset,
     elements::{
-        address, confidential, encode::deserialize, hashes, opcodes, script, Address, AssetId,
-        Block, BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn, TxInWitness as Witness,
-        TxOut, Txid,
+        address, bitcoin::bech32::Hrp, confidential, encode::deserialize, hashes, opcodes, script,
+        Address, AssetId, Block, BlockHash, BlockHeader, OutPoint, Script, Transaction, TxIn,
+        TxInWitness as Witness, TxOut, Txid,
     },
 };
 
 use bitcoin::blockdata::constants::genesis_block;
-pub use bitcoin::network::constants::Network as BNetwork;
+pub use bitcoin::Network as BNetwork;
+
+// Extension trait for getting txid in a cross-compatible way
+pub trait TxidCompat {
+    fn get_txid(&self) -> Txid;
+}
+
+#[cfg(not(feature = "liquid"))]
+impl TxidCompat for Transaction {
+    fn get_txid(&self) -> Txid {
+        self.compute_txid()
+    }
+}
+
+#[cfg(feature = "liquid")]
+impl TxidCompat for Transaction {
+    fn get_txid(&self) -> Txid {
+        self.txid()
+    }
+}
+
+// Extension trait for getting block size in a cross-compatible way
+pub trait BlockSizeCompat {
+    fn get_block_size(&self) -> usize;
+}
+
+#[cfg(not(feature = "liquid"))]
+impl BlockSizeCompat for Block {
+    fn get_block_size(&self) -> usize {
+        self.total_size()
+    }
+}
+
+#[cfg(feature = "liquid")]
+impl BlockSizeCompat for Block {
+    fn get_block_size(&self) -> usize {
+        self.size()
+    }
+}
 
 #[cfg(not(feature = "liquid"))]
 pub type Value = u64;
@@ -53,8 +92,8 @@ pub const LIQUID_TESTNET_PARAMS: address::AddressParams = address::AddressParams
     p2pkh_prefix: 36,
     p2sh_prefix: 19,
     blinded_prefix: 23,
-    bech_hrp: "tex",
-    blech_hrp: "tlq",
+    bech_hrp: Hrp::parse_unchecked("tex"),
+    blech_hrp: Hrp::parse_unchecked("tlq"),
 };
 
 /// Magic for testnet4, 0x1c163f28 (from BIP94) with flipped endianness.
@@ -66,7 +105,10 @@ impl Network {
     pub fn magic(self) -> u32 {
         match self {
             Self::Testnet4 => TESTNET4_MAGIC,
-            _ => BNetwork::from(self).magic(),
+            _ => {
+                let magic = BNetwork::from(self).magic();
+                u32::from_le_bytes(magic.to_bytes())
+            }
         }
     }
 
@@ -178,6 +220,10 @@ pub fn liquid_genesis_hash(network: Network) -> elements::BlockHash {
             "1466275836220db2944ca059a3a10ef6fd2ea684b0688d2c379296888a206003"
                 .parse()
                 .unwrap();
+        static ref ZERO_HASH: BlockHash =
+            "0000000000000000000000000000000000000000000000000000000000000000"
+                .parse()
+                .unwrap();
     }
 
     match network {
@@ -185,7 +231,7 @@ pub fn liquid_genesis_hash(network: Network) -> elements::BlockHash {
         // The genesis block for liquid regtest chains varies based on the chain configuration.
         // This instead uses an all zeroed-out hash, which doesn't matter in practice because its
         // only used for Electrum server discovery, which isn't active on regtest.
-        _ => Default::default(),
+        _ => *ZERO_HASH,
     }
 }
 
@@ -221,7 +267,7 @@ impl From<Network> for BNetwork {
         match network {
             Network::Bitcoin => BNetwork::Bitcoin,
             Network::Testnet => BNetwork::Testnet,
-            Network::Testnet4 => BNetwork::Testnet,
+            Network::Testnet4 => BNetwork::Testnet4,
             Network::Regtest => BNetwork::Regtest,
             Network::Signet => BNetwork::Signet,
         }
@@ -234,6 +280,7 @@ impl From<BNetwork> for Network {
         match network {
             BNetwork::Bitcoin => Network::Bitcoin,
             BNetwork::Testnet => Network::Testnet,
+            BNetwork::Testnet4 => Network::Testnet4,
             BNetwork::Regtest => Network::Regtest,
             BNetwork::Signet => Network::Signet,
         }
