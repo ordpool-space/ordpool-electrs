@@ -6,3 +6,6 @@ target
 *.pyc
 .vscode
 *.core
+
+# macOS
+.DS_Store
