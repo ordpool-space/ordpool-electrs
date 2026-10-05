@@ -11,6 +11,11 @@ use crate::errors::*;
 use crate::new_index::{ChainQuery, Mempool, ScriptStats, SpendingInput, Utxo};
 use crate::util::{is_spendable, BlockId, Bytes, TransactionStatus};
 
+#[cfg(not(feature = "liquid"))]
+use bitcoin::consensus::encode::deserialize;
+#[cfg(feature = "liquid")]
+use elements::encode::deserialize;
+
 #[cfg(feature = "liquid")]
 use crate::{
     chain::{asset::AssetRegistryLock, AssetId},
@@ -101,7 +106,30 @@ impl Query {
         maxfeerate: Option<f64>,
         maxburnamount: Option<f64>,
     ) -> Result<SubmitPackageResult> {
-        self.daemon.submit_package(txhex, maxfeerate, maxburnamount)
+        let result = self
+            .daemon
+            .submit_package(txhex.clone(), maxfeerate, maxburnamount)?;
+        // As in broadcast_raw: make what bitcoind accepted visible at once,
+        // instead of after the next mempool sync, so a client that looks a
+        // transaction up right after submitting it finds it. bitcoind takes a
+        // package parents first, so adding in submission order lets each child
+        // resolve its parent from the cache. A transaction bitcoind refused is
+        // not in its mempool, and add_by_txid skips it.
+        let mut mempool = self.mempool.write().unwrap();
+        for raw in &txhex {
+            let tx: Transaction = match hex::decode(raw).ok().and_then(|b| deserialize(&b).ok()) {
+                Some(tx) => tx,
+                None => continue,
+            };
+            let txid = tx.get_txid();
+            if let Err(e) = mempool.add_by_txid(&self.daemon, &txid) {
+                warn!(
+                    "submit_package accepted {txid} \
+                    but failed to add it to the mempool-electrs Mempool cache: {e}"
+                );
+            }
+        }
+        Ok(result)
     }
 
     pub fn utxo(&self, scripthash: &[u8]) -> Result<Vec<Utxo>> {
